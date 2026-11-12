@@ -32,6 +32,31 @@ func TestDoHValidGETAndPOST(t *testing.T) {
 	assertDoHResponse(t, postResponse, dns.RcodeSuccess, "192.0.2.10")
 }
 
+func TestDoHChromeCompatibleUnpaddedBase64URLGET(t *testing.T) {
+	query := new(dns.Msg)
+	query.SetQuestion("mrawsomeltd.awsome.", dns.TypeA)
+	query.Id = 0xfbf0
+	wire, err := query.Pack()
+	if err != nil {
+		t.Fatalf("pack DNS query: %v", err)
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(wire)
+	if strings.Contains(encoded, "=") || !strings.Contains(encoded, "-") || !strings.Contains(encoded, "_") {
+		t.Fatalf("fixture is not unpadded base64url with URL-safe symbols: %q", encoded)
+	}
+
+	handler := newDoHHandler(testResolver(t))
+	for _, target := range []string{
+		dohPath + "?dns=" + encoded,
+		dohPath + "?dns=" + strings.ReplaceAll(strings.ReplaceAll(encoded, "-", "%2D"), "_", "%5F"),
+	} {
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		assertDoHResponse(t, response, dns.RcodeSuccess, "192.0.2.10")
+	}
+}
+
 func TestHealthEndpoint(t *testing.T) {
 	handler := newDoHHandler(testResolver(t))
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)

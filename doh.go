@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,7 +55,11 @@ func (handler *dohHandler) ServeHTTP(writer http.ResponseWriter, request *http.R
 	var message []byte
 	switch request.Method {
 	case http.MethodGet:
-		encoded := request.URL.Query().Get("dns")
+		encoded, err := dnsQueryParameter(request.URL.RawQuery)
+		if err != nil {
+			http.Error(writer, "invalid DNS query parameter", http.StatusBadRequest)
+			return
+		}
 		if encoded == "" || len(encoded) > maxEncodedDNSMessage {
 			http.Error(writer, "invalid DNS query parameter", http.StatusBadRequest)
 			return
@@ -177,11 +184,44 @@ func (limiter *requestRateLimiter) Allow(remoteAddress string) bool {
 }
 
 func decodeDNSQuery(encoded string) ([]byte, error) {
-	decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+	decoded, err := base64.RawURLEncoding.Strict().DecodeString(encoded)
 	if err == nil {
 		return decoded, nil
 	}
-	return base64.URLEncoding.DecodeString(encoded)
+	return base64.URLEncoding.Strict().DecodeString(encoded)
+}
+
+func dnsQueryParameter(rawQuery string) (string, error) {
+	var value string
+	found := false
+	for _, parameter := range strings.Split(rawQuery, "&") {
+		if parameter == "" {
+			continue
+		}
+		key, encoded, hasValue := strings.Cut(parameter, "=")
+		decodedKey, err := url.PathUnescape(key)
+		if err != nil {
+			return "", err
+		}
+		if decodedKey != "dns" {
+			continue
+		}
+		if found || !hasValue {
+			return "", fmt.Errorf("DNS query parameter must appear once with a value")
+		}
+		if len(encoded) > maxEncodedDNSMessage*3 {
+			return "", fmt.Errorf("DNS query parameter is too large")
+		}
+		value, err = url.PathUnescape(encoded)
+		if err != nil {
+			return "", err
+		}
+		found = true
+	}
+	if !found {
+		return "", fmt.Errorf("DNS query parameter is missing")
+	}
+	return value, nil
 }
 
 type dohResponseWriter struct {
