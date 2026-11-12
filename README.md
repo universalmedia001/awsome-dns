@@ -125,16 +125,27 @@ Manage records with the command-line interface:
 
 ```sh
 ./awsome-dns add example.awsome 8.8.8.8
+./awsome-dns add-cname quali-boost.awsome quali-boost-28h4.vercel.app
 ./awsome-dns list
 ./awsome-dns update example.awsome 1.1.1.1
+./awsome-dns update-cname quali-boost.awsome new-target.example.com
 ./awsome-dns delete example.awsome
 ```
 
-Domain changes are saved atomically to the JSON database. On persistent local
-storage, a running DNS server reloads the database when it changes and applies
-new records on subsequent queries. On Render Free, the database file is
-ephemeral as described above. Add rejects duplicates; update and delete require
-an existing domain.
+The `list` command shows each domain, its record type, and its value. Domain
+changes are saved atomically to the JSON database. On persistent local storage,
+a running DNS server reloads the database when it changes and applies new
+records on subsequent queries. On Render Free, the database file is ephemeral
+as described above. Add rejects duplicates; update and delete require an
+existing domain.
+
+A CNAME response points to its configured hostname. This DNS server does not
+recursively resolve that hostname or return its IP address; a DNS client or
+upstream resolver must perform the subsequent lookup.
+
+The JSON database keeps existing A entries in the `domain` and `ipv4` format.
+CNAME entries use `domain` and `target`; each entry must contain exactly one
+of `ipv4` or `target`.
 
 ## Development Rules
 - No frontend or dashboard.

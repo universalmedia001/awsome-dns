@@ -26,8 +26,13 @@ func (r *Registry) Set(record Record) error {
 		return err
 	}
 	r.mu.Lock()
-	r.records[record.Domain] = record
-	r.mu.Unlock()
+	defer r.mu.Unlock()
+	replacement := cloneRecords(r.records)
+	replacement[record.Domain] = record
+	if err := validateCNAMELoops(replacement); err != nil {
+		return err
+	}
+	r.records = replacement
 	return nil
 }
 
@@ -41,7 +46,12 @@ func (r *Registry) Add(record Record) error {
 	if _, exists := r.records[record.Domain]; exists {
 		return fmt.Errorf("domain %q already exists", record.Domain)
 	}
-	r.records[record.Domain] = record
+	replacement := cloneRecords(r.records)
+	replacement[record.Domain] = record
+	if err := validateCNAMELoops(replacement); err != nil {
+		return err
+	}
+	r.records = replacement
 	return nil
 }
 
@@ -52,10 +62,19 @@ func (r *Registry) Update(record Record) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, exists := r.records[record.Domain]; !exists {
+	existing, exists := r.records[record.Domain]
+	if !exists {
 		return fmt.Errorf("domain %q does not exist", record.Domain)
 	}
-	r.records[record.Domain] = record
+	if existing.Type() != record.Type() {
+		return fmt.Errorf("domain %q is a %s record; use the matching update command", record.Domain, existing.Type())
+	}
+	replacement := cloneRecords(r.records)
+	replacement[record.Domain] = record
+	if err := validateCNAMELoops(replacement); err != nil {
+		return err
+	}
+	r.records = replacement
 	return nil
 }
 
@@ -84,6 +103,9 @@ func (r *Registry) ReplaceRecords(records []Record) error {
 			return fmt.Errorf("domain %q appears more than once", normalized.Domain)
 		}
 		replacement[normalized.Domain] = normalized
+	}
+	if err := validateCNAMELoops(replacement); err != nil {
+		return err
 	}
 
 	r.mu.Lock()
@@ -118,10 +140,50 @@ func normalizeRecord(record Record) (Record, error) {
 	if err := ValidateDomainName(record.Domain); err != nil {
 		return Record{}, fmt.Errorf("invalid record domain %q: %w", record.Domain, err)
 	}
-	if err := ValidateIPv4Address(record.IPv4); err != nil {
-		return Record{}, fmt.Errorf("invalid IPv4 address for %q: %w", record.Domain, err)
+	if (record.IPv4 == "") == (record.Target == "") {
+		return Record{}, fmt.Errorf("record %q must have exactly one of ipv4 or target", record.Domain)
+	}
+	if record.IPv4 != "" {
+		if err := ValidateIPv4Address(record.IPv4); err != nil {
+			return Record{}, fmt.Errorf("invalid IPv4 address for %q: %w", record.Domain, err)
+		}
+		record.IPv4 = net.ParseIP(record.IPv4).To4().String()
+	} else {
+		if err := ValidateHostname(record.Target); err != nil {
+			return Record{}, fmt.Errorf("invalid CNAME target for %q: %w", record.Domain, err)
+		}
+		record.Target = normalizeDomainName(record.Target)
 	}
 	record.Domain = normalizeDomainName(record.Domain)
-	record.IPv4 = net.ParseIP(record.IPv4).To4().String()
 	return record, nil
+}
+
+func cloneRecords(records map[string]Record) map[string]Record {
+	clone := make(map[string]Record, len(records)+1)
+	for domain, record := range records {
+		clone[domain] = record
+	}
+	return clone
+}
+
+func validateCNAMELoops(records map[string]Record) error {
+	for domain, record := range records {
+		if record.Target == "" {
+			continue
+		}
+		visited := map[string]struct{}{domain: {}}
+		target := normalizeDomainName(record.Target)
+		for {
+			if _, exists := visited[target]; exists {
+				return fmt.Errorf("CNAME loop detected starting at %q", domain)
+			}
+			visited[target] = struct{}{}
+			next, exists := records[target]
+			if !exists || next.Target == "" {
+				break
+			}
+			target = normalizeDomainName(next.Target)
+		}
+	}
+	return nil
 }

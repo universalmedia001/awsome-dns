@@ -42,27 +42,32 @@ func runCLI(args []string, databasePath string, output io.Writer) error {
 			_, err := fmt.Fprintln(output, "No domains registered.")
 			return err
 		}
-		if _, err := fmt.Fprintln(output, "DOMAIN\tIPv4"); err != nil {
+		if _, err := fmt.Fprintln(output, "DOMAIN\tTYPE\tVALUE"); err != nil {
 			return err
 		}
 		for _, record := range records {
-			if _, err := fmt.Fprintf(output, "%s\t%s\n", record.Domain, record.IPv4); err != nil {
+			if _, err := fmt.Fprintf(output, "%s\t%s\t%s\n", record.Domain, record.Type(), record.Value()); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
 
-	if len(args) == 3 && (args[0] == "add" || args[0] == "update") {
+	if len(args) == 3 && (args[0] == "add" || args[0] == "update" ||
+		args[0] == "add-cname" || args[0] == "update-cname") {
 		registry, err := loadRegistry(databasePath)
 		if err != nil {
 			return err
 		}
 		record := Record{Domain: args[1], IPv4: args[2]}
+		if args[0] == "add-cname" || args[0] == "update-cname" {
+			record.IPv4 = ""
+			record.Target = args[2]
+		}
 		switch args[0] {
-		case "add":
+		case "add", "add-cname":
 			err = registry.Add(record)
-		case "update":
+		case "update", "update-cname":
 			err = registry.Update(record)
 		}
 		if err != nil {
@@ -77,8 +82,12 @@ func runCLI(args []string, databasePath string, output io.Writer) error {
 		}
 		if args[0] == "add" {
 			_, err = fmt.Fprintf(output, "Successfully added %s -> %s.\n", saved.Domain, saved.IPv4)
-		} else {
+		} else if args[0] == "add-cname" {
+			_, err = fmt.Fprintf(output, "Successfully added %s %s -> %s.\n", saved.Type(), saved.Domain, saved.Value())
+		} else if args[0] == "update" {
 			_, err = fmt.Fprintf(output, "Successfully updated %s -> %s.\n", saved.Domain, saved.IPv4)
+		} else {
+			_, err = fmt.Fprintf(output, "Successfully updated %s %s -> %s.\n", saved.Type(), saved.Domain, saved.Value())
 		}
 		return err
 	}
@@ -98,7 +107,7 @@ func runCLI(args []string, databasePath string, output io.Writer) error {
 		return err
 	}
 
-	return fmt.Errorf("usage: awsome-dns add <domain.awsome> <IPv4> | list | update <domain.awsome> <IPv4> | delete <domain.awsome>")
+	return fmt.Errorf("usage: awsome-dns add <domain.awsome> <IPv4> | add-cname <domain.awsome> <target.hostname> | list | update <domain.awsome> <IPv4> | update-cname <domain.awsome> <target.hostname> | delete <domain.awsome>")
 }
 
 func loadRegistry(databasePath string) (*Registry, error) {

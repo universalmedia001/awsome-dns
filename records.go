@@ -10,7 +10,8 @@ const zoneSuffix = ".awsome"
 
 type Record struct {
 	Domain string `json:"domain"`
-	IPv4   string `json:"ipv4"`
+	IPv4   string `json:"ipv4,omitempty"`
+	Target string `json:"target,omitempty"`
 }
 
 func ValidateDomainName(domain string) error {
@@ -50,8 +51,50 @@ func ValidateIPv4Address(address string) error {
 	return nil
 }
 
+func ValidateHostname(hostname string) error {
+	name := normalizeDomainName(hostname)
+	if len(name) == 0 || len(name) > 253 {
+		return fmt.Errorf("hostname must be between 1 and 253 characters")
+	}
+	if net.ParseIP(name) != nil {
+		return fmt.Errorf("CNAME target must be a hostname, not an IP address")
+	}
+	labels := strings.Split(name, ".")
+	if len(labels) < 2 {
+		return fmt.Errorf("hostname must be a fully qualified name with at least two labels")
+	}
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 {
+			return fmt.Errorf("hostname contains an invalid label length")
+		}
+		if !isASCIIAlphaNumeric(label[0]) || !isASCIIAlphaNumeric(label[len(label)-1]) {
+			return fmt.Errorf("hostname labels must start and end with a letter or digit")
+		}
+		for i := 1; i < len(label)-1; i++ {
+			if !isASCIIAlphaNumeric(label[i]) && label[i] != '-' {
+				return fmt.Errorf("hostname labels may contain only letters, digits, and hyphens")
+			}
+		}
+	}
+	return nil
+}
+
 func normalizeDomainName(domain string) string {
 	return strings.ToLower(strings.TrimSuffix(domain, "."))
+}
+
+func (record Record) Type() string {
+	if record.Target != "" {
+		return "CNAME"
+	}
+	return "A"
+}
+
+func (record Record) Value() string {
+	if record.Target != "" {
+		return record.Target
+	}
+	return record.IPv4
 }
 
 func isASCIIAlphaNumeric(char byte) bool {

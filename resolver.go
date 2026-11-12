@@ -61,21 +61,35 @@ func (resolver *Resolver) ServeDNS(writer dns.ResponseWriter, request *dns.Msg) 
 		_ = writer.WriteMsg(response)
 		return
 	}
-	if question.Qtype != dns.TypeA {
+	if question.Qtype != dns.TypeA && question.Qtype != dns.TypeCNAME {
 		response.Rcode = dns.RcodeNotImplemented
 		_ = writer.WriteMsg(response)
 		return
 	}
 
-	response.Answer = append(response.Answer, &dns.A{
-		Hdr: dns.RR_Header{
-			Name:   dns.Fqdn(record.Domain),
-			Rrtype: dns.TypeA,
-			Class:  dns.ClassINET,
-			Ttl:    resolver.ttl,
-		},
-		A: net.ParseIP(record.IPv4).To4(),
-	})
+	if record.Target != "" {
+		if question.Qtype == dns.TypeA || question.Qtype == dns.TypeCNAME {
+			response.Answer = append(response.Answer, &dns.CNAME{
+				Hdr: dns.RR_Header{
+					Name:   dns.Fqdn(record.Domain),
+					Rrtype: dns.TypeCNAME,
+					Class:  dns.ClassINET,
+					Ttl:    resolver.ttl,
+				},
+				Target: dns.Fqdn(record.Target),
+			})
+		}
+	} else if question.Qtype == dns.TypeA {
+		response.Answer = append(response.Answer, &dns.A{
+			Hdr: dns.RR_Header{
+				Name:   dns.Fqdn(record.Domain),
+				Rrtype: dns.TypeA,
+				Class:  dns.ClassINET,
+				Ttl:    resolver.ttl,
+			},
+			A: net.ParseIP(record.IPv4).To4(),
+		})
+	}
 	_ = writer.WriteMsg(response)
 }
 

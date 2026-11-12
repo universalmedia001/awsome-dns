@@ -45,7 +45,7 @@ func TestDomainManagementCLIUpdatesResolver(t *testing.T) {
 		t.Fatalf("list command error = %v", err)
 	}
 	if !strings.Contains(output.String(), "mrawsomeltd.awsome") ||
-		!strings.Contains(output.String(), "service.awsome\t8.8.8.8") {
+		!strings.Contains(output.String(), "service.awsome\tA\t8.8.8.8") {
 		t.Errorf("list output did not include both records: %q", output.String())
 	}
 
