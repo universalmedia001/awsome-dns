@@ -67,8 +67,10 @@ func runCLI(args []string, databasePath string, output io.Writer) error {
 		switch args[0] {
 		case "add", "add-cname":
 			err = registry.Add(record)
-		case "update", "update-cname":
+		case "update":
 			err = registry.Update(record)
+		case "update-cname":
+			err = registry.UpdateCNAME(record)
 		}
 		if err != nil {
 			return err

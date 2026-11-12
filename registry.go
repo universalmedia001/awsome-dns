@@ -56,6 +56,17 @@ func (r *Registry) Add(record Record) error {
 }
 
 func (r *Registry) Update(record Record) error {
+	return r.update(record, false)
+}
+
+func (r *Registry) UpdateCNAME(record Record) error {
+	if record.Target == "" {
+		return fmt.Errorf("CNAME update requires a target hostname")
+	}
+	return r.update(record, true)
+}
+
+func (r *Registry) update(record Record, allowTypeChange bool) error {
 	record, err := normalizeRecord(record)
 	if err != nil {
 		return err
@@ -66,7 +77,7 @@ func (r *Registry) Update(record Record) error {
 	if !exists {
 		return fmt.Errorf("domain %q does not exist", record.Domain)
 	}
-	if existing.Type() != record.Type() {
+	if !allowTypeChange && existing.Type() != record.Type() {
 		return fmt.Errorf("domain %q is a %s record; use the matching update command", record.Domain, existing.Type())
 	}
 	replacement := cloneRecords(r.records)

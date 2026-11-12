@@ -51,14 +51,18 @@ func TestLegacyARecordDatabaseFormat(t *testing.T) {
 
 func TestCNAMECLIAndResolver(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "domains.json")
-	if err := SaveDatabase(path, []Record{{Domain: defaultDomain, IPv4: defaultIPv4Address}}); err != nil {
+	aRecord := Record{Domain: "quali-boost.awsome", IPv4: "76.76.21.21"}
+	if err := SaveDatabase(path, []Record{
+		{Domain: defaultDomain, IPv4: defaultIPv4Address},
+		aRecord,
+	}); err != nil {
 		t.Fatalf("SaveDatabase() error = %v", err)
 	}
 	var output bytes.Buffer
-	if err := runCLI([]string{"add-cname", "quali-boost.awsome", "quali-boost-28h4.vercel.app"}, path, &output); err != nil {
+	if err := runCLI([]string{"add-cname", "alias.awsome", "target.example.com"}, path, &output); err != nil {
 		t.Fatalf("add-cname error = %v", err)
 	}
-	if !strings.Contains(output.String(), "Successfully added CNAME quali-boost.awsome -> quali-boost-28h4.vercel.app.") {
+	if !strings.Contains(output.String(), "Successfully added CNAME alias.awsome -> target.example.com.") {
 		t.Errorf("add-cname output = %q", output.String())
 	}
 
@@ -66,7 +70,7 @@ func TestCNAMECLIAndResolver(t *testing.T) {
 	if err := runCLI([]string{"list"}, path, &output); err != nil {
 		t.Fatalf("list error = %v", err)
 	}
-	if !strings.Contains(output.String(), "quali-boost.awsome\tCNAME\tquali-boost-28h4.vercel.app") {
+	if !strings.Contains(output.String(), "alias.awsome\tCNAME\ttarget.example.com") {
 		t.Errorf("list output did not describe CNAME: %q", output.String())
 	}
 
@@ -75,23 +79,56 @@ func TestCNAMECLIAndResolver(t *testing.T) {
 		t.Fatalf("loadRegistry() error = %v", err)
 	}
 	resolver := NewResolverWithDatabase(registry, defaultTTL, path)
-	assertResolverRecord(t, resolver, "quali-boost.awsome.", dns.TypeA, dns.TypeCNAME, "quali-boost-28h4.vercel.app.")
-	assertResolverRecord(t, resolver, "quali-boost.awsome.", dns.TypeCNAME, dns.TypeCNAME, "quali-boost-28h4.vercel.app.")
+	assertResolverRecord(t, resolver, "alias.awsome.", dns.TypeA, dns.TypeCNAME, "target.example.com.")
+	assertResolverRecord(t, resolver, "alias.awsome.", dns.TypeCNAME, dns.TypeCNAME, "target.example.com.")
 	assertResolverRecord(t, resolver, defaultDomain+".", dns.TypeA, dns.TypeA, defaultIPv4Address)
 
 	output.Reset()
-	if err := runCLI([]string{"update-cname", "quali-boost.awsome", "new-target.example.com"}, path, &output); err != nil {
+	if err := runCLI([]string{"update-cname", "quali-boost.awsome", "quali-boost-28h4.vercel.app"}, path, &output); err != nil {
+		t.Fatalf("A-to-CNAME update error = %v", err)
+	}
+	if !strings.Contains(output.String(), "Successfully updated CNAME quali-boost.awsome -> quali-boost-28h4.vercel.app.") {
+		t.Errorf("A-to-CNAME update output = %q", output.String())
+	}
+	assertResolverRecord(t, resolver, "quali-boost.awsome.", dns.TypeA, dns.TypeCNAME, "quali-boost-28h4.vercel.app.")
+
+	records, err := LoadDatabase(path)
+	if err != nil {
+		t.Fatalf("LoadDatabase() after conversion error = %v", err)
+	}
+	var converted Record
+	for _, record := range records {
+		if record.Domain == aRecord.Domain {
+			converted = record
+		}
+	}
+	if converted.Target != "quali-boost-28h4.vercel.app" || converted.IPv4 != "" {
+		t.Fatalf("persisted converted record = %#v", converted)
+	}
+
+	output.Reset()
+	if err := runCLI([]string{"update-cname", "alias.awsome", "new-target.example.com"}, path, &output); err != nil {
 		t.Fatalf("update-cname error = %v", err)
 	}
-	if !strings.Contains(output.String(), "Successfully updated CNAME quali-boost.awsome -> new-target.example.com.") {
+	if !strings.Contains(output.String(), "Successfully updated CNAME alias.awsome -> new-target.example.com.") {
 		t.Errorf("update-cname output = %q", output.String())
 	}
-	assertResolverRecord(t, resolver, "quali-boost.awsome.", dns.TypeA, dns.TypeCNAME, "new-target.example.com.")
+	assertResolverRecord(t, resolver, "alias.awsome.", dns.TypeA, dns.TypeCNAME, "new-target.example.com.")
+	if err := runCLI([]string{"update-cname", "missing.awsome", "target.example.com"}, path, &output); err == nil {
+		t.Fatal("update-cname succeeded for a missing domain")
+	}
+	if err := runCLI([]string{"update-cname", "quali-boost.awsome", "invalid-target"}, path, &output); err == nil {
+		t.Fatal("update-cname succeeded for an invalid target")
+	}
+	assertResolverRecord(t, resolver, "quali-boost.awsome.", dns.TypeA, dns.TypeCNAME, "quali-boost-28h4.vercel.app.")
 
 	if err := runCLI([]string{"delete", "quali-boost.awsome"}, path, &output); err != nil {
 		t.Fatalf("delete CNAME error = %v", err)
 	}
 	assertResolverRcode(t, resolver, "quali-boost.awsome.", dns.TypeA, dns.RcodeNameError)
+	if err := runCLI([]string{"delete", "alias.awsome"}, path, &output); err != nil {
+		t.Fatalf("delete CNAME error = %v", err)
+	}
 }
 
 func TestCNAMEValidationConflictsAndLoops(t *testing.T) {

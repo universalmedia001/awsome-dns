@@ -5,6 +5,6 @@
   },
   {
     "domain": "quali-boost.awsome",
-    "ipv4": "76.76.21.21"
+    "target": "quali-boost-28h4.vercel.app"
   }
 ]

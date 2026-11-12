@@ -143,6 +143,9 @@ A CNAME response points to its configured hostname. This DNS server does not
 recursively resolve that hostname or return its IP address; a DNS client or
 upstream resolver must perform the subsequent lookup.
 
+`update-cname` updates an existing CNAME target and can also convert an
+existing A record into a CNAME record, replacing the A value for that domain.
+
 The JSON database keeps existing A entries in the `domain` and `ipv4` format.
 CNAME entries use `domain` and `target`; each entry must contain exactly one
 of `ipv4` or `target`.
