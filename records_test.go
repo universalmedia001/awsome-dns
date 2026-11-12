@@ -36,6 +36,7 @@ func TestValidateIPv4Address(t *testing.T) {
 	}{
 		{address: "192.0.2.10"},
 		{address: "2001:db8::1", wantErr: true},
+		{address: "::ffff:192.0.2.10", wantErr: true},
 		{address: "999.0.2.10", wantErr: true},
 	} {
 		err := ValidateIPv4Address(test.address)

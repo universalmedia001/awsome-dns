@@ -44,7 +44,7 @@ func ValidateDomainName(domain string) error {
 
 func ValidateIPv4Address(address string) error {
 	ip := net.ParseIP(address)
-	if ip == nil || ip.To4() == nil {
+	if ip == nil || ip.To4() == nil || strings.Contains(address, ":") {
 		return fmt.Errorf("%q is not a valid IPv4 address", address)
 	}
 	return nil
