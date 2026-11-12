@@ -111,11 +111,6 @@ func (resolver *Resolver) resolveAuthoritative(request *dns.Msg) *dns.Msg {
 		response.Rcode = dns.RcodeNameError
 		return response
 	}
-	if question.Qtype != dns.TypeA && question.Qtype != dns.TypeCNAME {
-		response.Rcode = dns.RcodeNotImplemented
-		return response
-	}
-
 	if record.Target != "" {
 		if question.Qtype == dns.TypeA || question.Qtype == dns.TypeCNAME {
 			response.Answer = append(response.Answer, &dns.CNAME{

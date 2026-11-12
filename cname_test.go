@@ -178,11 +178,13 @@ func TestDoHCNAMEQueries(t *testing.T) {
 	handler := newDoHHandler(NewResolver(registry, defaultTTL))
 
 	for _, test := range []struct {
-		name  string
-		qtype uint16
+		name        string
+		qtype       uint16
+		wantAnswers int
 	}{
-		{name: "A query receives CNAME", qtype: dns.TypeA},
-		{name: "CNAME query", qtype: dns.TypeCNAME},
+		{name: "A query receives CNAME", qtype: dns.TypeA, wantAnswers: 1},
+		{name: "CNAME query", qtype: dns.TypeCNAME, wantAnswers: 1},
+		{name: "HTTPS query receives NODATA", qtype: dns.TypeHTTPS, wantAnswers: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, dohPath, bytes.NewReader(packedDNSQuery(t, "alias.awsome.", test.qtype)))
@@ -196,8 +198,14 @@ func TestDoHCNAMEQueries(t *testing.T) {
 			if err := message.Unpack(response.Body.Bytes()); err != nil {
 				t.Fatalf("unpack response: %v", err)
 			}
-			if len(message.Answer) != 1 {
-				t.Fatalf("answer count = %d, want 1", len(message.Answer))
+			if message.Rcode != dns.RcodeSuccess || !message.Authoritative {
+				t.Fatalf("HTTPS/A/CNAME response Rcode=%d authoritative=%t, want authoritative NOERROR", message.Rcode, message.Authoritative)
+			}
+			if len(message.Answer) != test.wantAnswers {
+				t.Fatalf("answer count = %d, want %d", len(message.Answer), test.wantAnswers)
+			}
+			if test.wantAnswers == 0 {
+				return
 			}
 			answer, ok := message.Answer[0].(*dns.CNAME)
 			if !ok || answer.Target != "target.example.com." {

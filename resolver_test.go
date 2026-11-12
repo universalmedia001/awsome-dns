@@ -46,7 +46,8 @@ func TestResolverResponses(t *testing.T) {
 	}{
 		{name: "known A record", domain: "mrawsomeltd.awsome.", qtype: dns.TypeA, wantAnswers: 1},
 		{name: "unknown domain", domain: "unknown.awsome.", qtype: dns.TypeA, wantRcode: dns.RcodeNameError},
-		{name: "unsupported type", domain: "mrawsomeltd.awsome.", qtype: dns.TypeAAAA, wantRcode: dns.RcodeNotImplemented},
+		{name: "HTTPS type returns authoritative NODATA", domain: "mrawsomeltd.awsome.", qtype: dns.TypeHTTPS, wantAnswers: 0},
+		{name: "unsupported type returns authoritative NODATA", domain: "mrawsomeltd.awsome.", qtype: dns.TypeAAAA, wantAnswers: 0},
 		{name: "unknown .awsome domain", domain: "missing.awsome.", qtype: dns.TypeA, wantRcode: dns.RcodeNameError},
 	}
 
@@ -62,6 +63,9 @@ func TestResolverResponses(t *testing.T) {
 			}
 			if writer.message.Rcode != test.wantRcode {
 				t.Errorf("response Rcode = %d, want %d", writer.message.Rcode, test.wantRcode)
+			}
+			if test.domain == "mrawsomeltd.awsome." && !writer.message.Authoritative {
+				t.Error("response is not authoritative")
 			}
 			if len(writer.message.Answer) != test.wantAnswers {
 				t.Fatalf("response has %d answers, want %d", len(writer.message.Answer), test.wantAnswers)
