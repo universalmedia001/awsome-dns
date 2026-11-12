@@ -77,6 +77,158 @@ shared, so configure an additional per-client rate limit at the proxy if
 needed. Upstream availability depends on Cloudflare DoH and outbound HTTPS
 connectivity.
 
+## Client configuration
+
+**Provider:** AWSOME DNS
+
+**DNS-over-HTTPS endpoint:** [https://awsome-dns.onrender.com/dns-query](https://awsome-dns.onrender.com/dns-query)
+
+Names in the private `.awsome` namespace are not globally delegated. A device
+or application must send its DNS queries to AWSOME DNS to resolve them.
+Configuring DoH in a browser affects that browser's DNS lookups; it does not
+necessarily change the resolver used by other applications on the device.
+
+### Google Chrome
+
+1. Open **Settings → Privacy and security → Security**.
+2. Enable **Use secure DNS**.
+3. If your Chrome version offers a custom provider option (often **With
+   custom**), choose it and enter:
+   `https://awsome-dns.onrender.com/dns-query`
+
+Chrome's available choices vary by version and platform. If no custom provider
+field is offered, Chrome cannot be configured with this endpoint through that
+version's settings.
+
+### Mozilla Firefox
+
+1. Open **Settings → Privacy & Security**.
+2. Find **DNS over HTTPS**.
+3. Select the option to use a custom provider, if available, and enter:
+   `https://awsome-dns.onrender.com/dns-query`
+
+Firefox labels and availability vary by version and managed-device policy.
+
+### Windows 11
+
+On Windows 11 builds that support DNS-over-HTTPS, open **Settings → Network &
+internet**, select the active Wi-Fi or Ethernet connection, and edit **DNS
+server assignment**. Windows' built-in settings may offer DoH only for
+recognized providers. Configure AWSOME DNS only if your Windows version or
+management tooling permits a custom DoH server/template. The endpoint must be
+entered in the template syntax Windows expects; an RFC 8484 URI-template form
+is typically:
+`https://awsome-dns.onrender.com/dns-query{?dns}`.
+
+Do not assume every Windows version or settings UI supports arbitrary custom
+DoH providers. If the endpoint cannot be added as a compatible template, use a
+DoH-capable client that supports custom providers.
+
+### Android
+
+Android's built-in **Private DNS** setting normally uses DNS-over-TLS (DoT),
+not arbitrary DNS-over-HTTPS endpoints. AWSOME DNS currently provides DoH; it
+does not provide DoT. To use AWSOME DNS on Android, use a compatible
+third-party DNS client that supports a custom DoH provider and enter the
+endpoint above.
+
+### iPhone and iPad
+
+iOS and iPadOS may require a compatible DNS-over-HTTPS client or a
+configuration profile to use a custom DoH endpoint. No AWSOME DNS profile is
+provided by this project. Use only a profile or client that explicitly supports
+custom DoH and configure the endpoint above.
+
+### Testing the public endpoint
+
+Check that the Render service is awake and healthy:
+
+```sh
+curl -i https://awsome-dns.onrender.com/health
+```
+
+Expect HTTP `200` and the body `ok`. A sleeping Render Free service can take
+time to wake before responding.
+
+The following standard-library Python script sends real RFC 8484 GET queries
+for `google.com` and `quali-boost.awsome` and prints their DNS answer records:
+
+```sh
+python3 - <<'PY'
+import base64
+import ipaddress
+import struct
+import urllib.parse
+import urllib.request
+
+endpoint = "https://awsome-dns.onrender.com/dns-query"
+
+def decode_name(packet, offset):
+    labels = []
+    while True:
+        length = packet[offset]
+        offset += 1
+        if length == 0:
+            return ".".join(labels) + ".", offset
+        if length & 0xC0 == 0xC0:
+            pointer = ((length & 0x3F) << 8) | packet[offset]
+            suffix, _ = decode_name(packet, pointer)
+            return (".".join(labels) + "." if labels else "") + suffix, offset + 1
+        labels.append(packet[offset:offset + length].decode("ascii"))
+        offset += length
+
+def lookup(domain):
+    query = struct.pack("!HHHHHH", 0xA710, 0x0100, 1, 0, 0, 0)
+    query += b"".join(bytes([len(label)]) + label.encode("ascii")
+                      for label in domain.split("."))
+    query += b"\0" + struct.pack("!HH", 1, 1)
+    encoded = base64.urlsafe_b64encode(query).decode("ascii").rstrip("=")
+    url = endpoint + "?dns=" + urllib.parse.quote(encoded)
+    request = urllib.request.Request(url, headers={"Accept": "application/dns-message"})
+    with urllib.request.urlopen(request, timeout=20) as response:
+        packet = response.read()
+        if response.status != 200 or response.headers.get_content_type() != "application/dns-message":
+            raise RuntimeError(f"unexpected HTTP response for {domain}")
+    _, flags, questions, answers, _, _ = struct.unpack("!HHHHHH", packet[:12])
+    offset = 12
+    for _ in range(questions):
+        _, offset = decode_name(packet, offset)
+        offset += 4
+    records = []
+    for _ in range(answers):
+        owner, offset = decode_name(packet, offset)
+        rtype, _, _, size = struct.unpack("!HHIH", packet[offset:offset + 10])
+        offset += 10
+        value = packet[offset:offset + size]
+        if rtype == 1 and size == 4:
+            records.append(f"{owner} A {ipaddress.ip_address(value)}")
+        elif rtype == 5:
+            target, _ = decode_name(packet, offset)
+            records.append(f"{owner} CNAME {target}")
+        offset += size
+    rcode = flags & 0x0F
+    print(f"{domain}: rcode={rcode}; " + (", ".join(records) if records else "no answers"))
+
+lookup("google.com")
+lookup("quali-boost.awsome")
+PY
+```
+
+`google.com` should return a successful DNS response with one or more current
+A or CNAME answers (addresses may change). `quali-boost.awsome` should return
+its configured CNAME target, `quali-boost-28h4.vercel.app`. The resolver
+returns the alias target; it does not recursively resolve that target to an IP.
+
+### Client and hosting limitations
+
+- Render Free services can sleep when idle, so the first request may be delayed
+  while the service wakes.
+- `.awsome` is private to this resolver and is not globally delegated.
+- Adding a DNS record does not configure Vercel to serve that hostname. The
+  hosting provider must separately recognize and configure the custom domain.
+- Public HTTPS certificates for private `.awsome` names are not automatically
+  available. A DNS answer alone does not provision a certificate.
+
 The HTTP listener does not provide TLS. For deployment, keep it bound to a
 trusted interface and put an HTTPS reverse proxy in front of it. Configure the
 proxy with a certificate for your DNS hostname and forward `/dns-query` to
