@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/miekg/dns"
@@ -15,56 +18,102 @@ type Resolver struct {
 	databasePath string
 	databaseMu   sync.Mutex
 	databaseInfo os.FileInfo
+	forwarder    dnsForwarder
 }
 
 func NewResolver(registry *Registry, ttl uint32) *Resolver {
-	return &Resolver{registry: registry, ttl: ttl}
+	return NewResolverWithForwarder(registry, ttl, newCloudflareForwarder())
+}
+
+func NewResolverWithForwarder(registry *Registry, ttl uint32, forwarder dnsForwarder) *Resolver {
+	return &Resolver{registry: registry, ttl: ttl, forwarder: forwarder}
 }
 
 func NewResolverWithDatabase(registry *Registry, ttl uint32, databasePath string) *Resolver {
+	return NewResolverWithDatabaseAndForwarder(registry, ttl, databasePath, newCloudflareForwarder())
+}
+
+func NewResolverWithDatabaseAndForwarder(registry *Registry, ttl uint32, databasePath string, forwarder dnsForwarder) *Resolver {
 	return &Resolver{
 		registry:     registry,
 		ttl:          ttl,
 		databasePath: databasePath,
+		forwarder:    forwarder,
 	}
 }
 
 func (resolver *Resolver) ServeDNS(writer dns.ResponseWriter, request *dns.Msg) {
-	resolver.refreshDatabase()
+	if len(request.Question) == 1 && !isAWSOMEDomain(request.Question[0].Name) {
+		queryWire, err := request.Pack()
+		if err == nil {
+			responseWire, forwardErr := resolver.forwarder.Forward(context.Background(), queryWire)
+			if forwardErr == nil {
+				_, _ = writer.Write(responseWire)
+				return
+			}
+		}
+		response := new(dns.Msg)
+		response.SetReply(request)
+		response.Authoritative = false
+		response.Rcode = dns.RcodeServerFailure
+		_ = writer.WriteMsg(response)
+		return
+	}
 
+	response := resolver.resolveAuthoritative(request)
+	_ = writer.WriteMsg(response)
+}
+
+func (resolver *Resolver) ExchangeWire(ctx context.Context, queryWire []byte) ([]byte, error) {
+	if len(queryWire) == 0 || len(queryWire) > maxDNSMessageSize {
+		return nil, fmt.Errorf("invalid DNS message size")
+	}
+	var request dns.Msg
+	if err := request.Unpack(queryWire); err != nil || request.Response {
+		return nil, fmt.Errorf("invalid DNS query")
+	}
+	if len(request.Question) == 1 && !isAWSOMEDomain(request.Question[0].Name) {
+		return resolver.forwarder.Forward(ctx, queryWire)
+	}
+	response := resolver.resolveAuthoritative(&request)
+	return response.Pack()
+}
+
+func isAWSOMEDomain(name string) bool {
+	name = normalizeDomainName(name)
+	return name == "awsome" || strings.HasSuffix(name, zoneSuffix)
+}
+
+func (resolver *Resolver) resolveAuthoritative(request *dns.Msg) *dns.Msg {
+	resolver.refreshDatabase()
 	response := new(dns.Msg)
 	response.SetReply(request)
 	response.Authoritative = true
 
 	if len(request.Question) != 1 {
 		response.Rcode = dns.RcodeFormatError
-		_ = writer.WriteMsg(response)
-		return
+		return response
 	}
 
 	question := request.Question[0]
 	if question.Qclass != dns.ClassINET {
 		response.Rcode = dns.RcodeRefused
-		_ = writer.WriteMsg(response)
-		return
+		return response
 	}
 
 	domain := normalizeDomainName(question.Name)
 	if ValidateDomainName(domain) != nil {
 		response.Rcode = dns.RcodeNameError
-		_ = writer.WriteMsg(response)
-		return
+		return response
 	}
 	record, exists := resolver.registry.Lookup(domain)
 	if !exists {
 		response.Rcode = dns.RcodeNameError
-		_ = writer.WriteMsg(response)
-		return
+		return response
 	}
 	if question.Qtype != dns.TypeA && question.Qtype != dns.TypeCNAME {
 		response.Rcode = dns.RcodeNotImplemented
-		_ = writer.WriteMsg(response)
-		return
+		return response
 	}
 
 	if record.Target != "" {
@@ -90,7 +139,7 @@ func (resolver *Resolver) ServeDNS(writer dns.ResponseWriter, request *dns.Msg) 
 			A: net.ParseIP(record.IPv4).To4(),
 		})
 	}
-	_ = writer.WriteMsg(response)
+	return response
 }
 
 func (resolver *Resolver) refreshDatabase() {

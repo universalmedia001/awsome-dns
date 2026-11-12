@@ -11,13 +11,20 @@ type testResponseWriter struct {
 	message *dns.Msg
 }
 
-func (writer *testResponseWriter) LocalAddr() net.Addr       { return &net.UDPAddr{} }
-func (writer *testResponseWriter) RemoteAddr() net.Addr      { return &net.UDPAddr{} }
-func (writer *testResponseWriter) Write([]byte) (int, error) { return 0, nil }
-func (writer *testResponseWriter) Close() error              { return nil }
-func (writer *testResponseWriter) TsigStatus() error         { return nil }
-func (writer *testResponseWriter) TsigTimersOnly(bool)       {}
-func (writer *testResponseWriter) Hijack()                   {}
+func (writer *testResponseWriter) LocalAddr() net.Addr  { return &net.UDPAddr{} }
+func (writer *testResponseWriter) RemoteAddr() net.Addr { return &net.UDPAddr{} }
+func (writer *testResponseWriter) Write(message []byte) (int, error) {
+	response := new(dns.Msg)
+	if err := response.Unpack(message); err != nil {
+		return 0, err
+	}
+	writer.message = response
+	return len(message), nil
+}
+func (writer *testResponseWriter) Close() error        { return nil }
+func (writer *testResponseWriter) TsigStatus() error   { return nil }
+func (writer *testResponseWriter) TsigTimersOnly(bool) {}
+func (writer *testResponseWriter) Hijack()             {}
 func (writer *testResponseWriter) WriteMsg(message *dns.Msg) error {
 	writer.message = message
 	return nil
@@ -40,7 +47,7 @@ func TestResolverResponses(t *testing.T) {
 		{name: "known A record", domain: "mrawsomeltd.awsome.", qtype: dns.TypeA, wantAnswers: 1},
 		{name: "unknown domain", domain: "unknown.awsome.", qtype: dns.TypeA, wantRcode: dns.RcodeNameError},
 		{name: "unsupported type", domain: "mrawsomeltd.awsome.", qtype: dns.TypeAAAA, wantRcode: dns.RcodeNotImplemented},
-		{name: "outside zone", domain: "example.com.", qtype: dns.TypeA, wantRcode: dns.RcodeNameError},
+		{name: "unknown .awsome domain", domain: "missing.awsome.", qtype: dns.TypeA, wantRcode: dns.RcodeNameError},
 	}
 
 	for _, test := range tests {

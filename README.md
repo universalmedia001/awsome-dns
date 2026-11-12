@@ -53,6 +53,30 @@ curl -X POST -H 'Content-Type: application/dns-message' \
   --data-binary @query.bin http://127.0.0.1:8054/dns-query
 ```
 
+## DNS resolution and upstream forwarding
+
+The resolver handles `.awsome` names authoritatively from `domains.json`.
+Known names use the local A or CNAME record; unknown names in that namespace
+return `NXDOMAIN` and are never forwarded.
+
+Queries for names outside `.awsome` are forwarded as DNS wire messages by
+HTTP POST to Cloudflare's DoH endpoint
+(`https://cloudflare-dns.com/dns-query`). This includes standard query types
+such as A, AAAA, CNAME, MX, and TXT. Successful upstream DNS responses are
+returned without rewriting their wire-format response. If the upstream times
+out or returns an invalid response, DNS clients receive `SERVFAIL` and DoH
+clients receive HTTP `502`.
+
+The public DoH endpoint can therefore resolve ordinary internet names as well
+as private `.awsome` records. DoH requests are limited to a burst of 60
+requests per client address, replenishing at one request per second; a global
+limit of 64 concurrent upstream requests and the existing 65,535-byte DNS
+message limit also apply. The address is taken from the TCP peer, not an
+untrusted forwarded header. Behind a reverse proxy, peer addresses may be
+shared, so configure an additional per-client rate limit at the proxy if
+needed. Upstream availability depends on Cloudflare DoH and outbound HTTPS
+connectivity.
+
 The HTTP listener does not provide TLS. For deployment, keep it bound to a
 trusted interface and put an HTTPS reverse proxy in front of it. Configure the
 proxy with a certificate for your DNS hostname and forward `/dns-query` to
