@@ -24,7 +24,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		ListenAddress:     defaultListenAddress,
-		HTTPListenAddress: configuredValue("AWSOME_DNS_HTTP_ADDR", defaultHTTPListenAddress),
+		HTTPListenAddress: defaultHTTPAddress(),
 		DatabasePath:      defaultDatabasePath,
 		DefaultDomain:     defaultDomain,
 		DefaultIPv4:       defaultIPv4Address,
@@ -32,9 +32,12 @@ func DefaultConfig() Config {
 	}
 }
 
-func configuredValue(environmentVariable, fallback string) string {
-	if value := os.Getenv(environmentVariable); value != "" {
-		return value
+func defaultHTTPAddress() string {
+	if address := os.Getenv("AWSOME_DNS_HTTP_ADDR"); address != "" {
+		return address
 	}
-	return fallback
+	if port := os.Getenv("PORT"); port != "" {
+		return "0.0.0.0:" + port
+	}
+	return defaultHTTPListenAddress
 }

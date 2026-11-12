@@ -21,8 +21,9 @@ go build -o awsome-dns .
 
 By default, the existing DNS service listens on `127.0.0.1:8053` for UDP and
 TCP. The DoH endpoint listens on `127.0.0.1:8054` over plain HTTP at
-`http://127.0.0.1:8054/dns-query`. Set `AWSOME_DNS_HTTP_ADDR` to change the
-HTTP listen address, for example:
+`http://127.0.0.1:8054/dns-query`, and `GET /health` returns a minimal health
+status. Set `AWSOME_DNS_HTTP_ADDR` to change the HTTP listen address, for
+example:
 
 ```sh
 AWSOME_DNS_HTTP_ADDR=127.0.0.1:8080 ./awsome-dns
@@ -81,6 +82,42 @@ forwarding and lifecycle are not a stable, always-on public DNS/DoH hosting
 service; use dedicated infrastructure or a DNS hosting provider for permanent
 public service.
 
+## Deploying on Render Free
+
+Create a **Web Service** from this repository and use the following commands:
+
+- Build: `go build -o awsome-dns .`
+- Start: `./awsome-dns`
+- Health check path: `/health`
+
+Render supplies `PORT` at runtime. When `AWSOME_DNS_HTTP_ADDR` is not set, the
+DoH HTTP server binds to `0.0.0.0:$PORT`, as required for Render web services.
+An explicitly set `AWSOME_DNS_HTTP_ADDR` takes precedence. Render provides
+HTTPS for the web service URL; use `https://<your-service>.onrender.com/dns-query`
+for DoH and `https://<your-service>.onrender.com/health` for health checks.
+The application itself only serves HTTP, behind Render's HTTPS termination.
+
+On Render Free, public access is through the HTTP(S) web service. Do not rely
+on the existing UDP or TCP DNS listener being publicly reachable there; use
+DoH as the public DNS transport.
+
+Free web services spin down after 15 minutes without inbound traffic and can
+take about a minute to start again when requested. While spun down, requests
+may see a startup delay. Render's free web-service filesystem is ephemeral:
+changes to `domains.json` are lost when the service spins down, restarts, or
+redeploys. The CLI continues to work, but changes made on the running instance
+are not durable and must not be treated as persistent records.
+
+There is no safe, permanent free Render filesystem option for this JSON
+database. Render persistent disks require a paid service. Render's free
+PostgreSQL expires after 30 days, and free Key Value is in-memory, so neither
+is a durable, drop-in replacement for this database. For a no-cost development
+workflow, keep `domains.json` under version control, make record changes in the
+repository, and redeploy; this preserves a reviewed source of truth, but it is
+not live persistence for CLI changes made on Render. Durable runtime updates
+require a separately selected persistent storage service and a deliberate
+database integration.
+
 ## Domain management
 
 The server loads domain records from `domains.json` in its working directory.
@@ -93,9 +130,11 @@ Manage records with the command-line interface:
 ./awsome-dns delete example.awsome
 ```
 
-Domain changes are saved atomically to the JSON database. A running DNS server
-reloads the database when it changes, and applies the new records on subsequent
-queries. Add rejects duplicates; update and delete require an existing domain.
+Domain changes are saved atomically to the JSON database. On persistent local
+storage, a running DNS server reloads the database when it changes and applies
+new records on subsequent queries. On Render Free, the database file is
+ephemeral as described above. Add rejects duplicates; update and delete require
+an existing domain.
 
 ## Development Rules
 - No frontend or dashboard.

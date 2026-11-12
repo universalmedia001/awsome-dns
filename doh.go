@@ -24,6 +24,15 @@ type dohHandler struct {
 func newDoHHandler(resolver dns.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle(dohPath, &dohHandler{resolver: resolver})
+	mux.HandleFunc("/health", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writer.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(writer, "ok\n")
+	})
 	return mux
 }
 

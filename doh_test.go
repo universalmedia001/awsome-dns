@@ -32,6 +32,31 @@ func TestDoHValidGETAndPOST(t *testing.T) {
 	assertDoHResponse(t, postResponse, dns.RcodeSuccess, "192.0.2.10")
 }
 
+func TestHealthEndpoint(t *testing.T) {
+	handler := newDoHHandler(testResolver(t))
+	request := httptest.NewRequest(http.MethodGet, "/health", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("health status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if response.Body.String() != "ok\n" {
+		t.Fatalf("health body = %q, want %q", response.Body.String(), "ok\n")
+	}
+	if strings.Contains(response.Body.String(), defaultDomain) {
+		t.Fatal("health response exposed domain records")
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/health", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST health status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
+	}
+}
+
 func TestDoHRejectsMalformedRequests(t *testing.T) {
 	handler := newDoHHandler(testResolver(t))
 	tests := []struct {
