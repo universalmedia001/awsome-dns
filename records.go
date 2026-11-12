@@ -1,0 +1,59 @@
+package main
+
+import (
+	"fmt"
+	"net"
+	"strings"
+)
+
+const zoneSuffix = ".awsome"
+
+type Record struct {
+	Domain string `json:"domain"`
+	IPv4   string `json:"ipv4"`
+}
+
+func ValidateDomainName(domain string) error {
+	name := normalizeDomainName(domain)
+	if len(name) == 0 || len(name) > 253 {
+		return fmt.Errorf("domain name must be between 1 and 253 characters")
+	}
+	if !strings.HasSuffix(name, zoneSuffix) {
+		return fmt.Errorf("domain name must be within the %q namespace", zoneSuffix)
+	}
+
+	labels := strings.Split(name, ".")
+	if len(labels) < 2 {
+		return fmt.Errorf("domain name must contain a label before %q", zoneSuffix)
+	}
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 {
+			return fmt.Errorf("domain name contains an invalid label length")
+		}
+		if !isASCIIAlphaNumeric(label[0]) || !isASCIIAlphaNumeric(label[len(label)-1]) {
+			return fmt.Errorf("domain labels must start and end with a letter or digit")
+		}
+		for i := 1; i < len(label)-1; i++ {
+			if !isASCIIAlphaNumeric(label[i]) && label[i] != '-' {
+				return fmt.Errorf("domain labels may contain only letters, digits, and hyphens")
+			}
+		}
+	}
+	return nil
+}
+
+func ValidateIPv4Address(address string) error {
+	ip := net.ParseIP(address)
+	if ip == nil || ip.To4() == nil {
+		return fmt.Errorf("%q is not a valid IPv4 address", address)
+	}
+	return nil
+}
+
+func normalizeDomainName(domain string) string {
+	return strings.ToLower(strings.TrimSuffix(domain, "."))
+}
+
+func isASCIIAlphaNumeric(char byte) bool {
+	return char >= 'a' && char <= 'z' || char >= '0' && char <= '9'
+}
